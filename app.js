@@ -51,13 +51,13 @@ async function setupUpload(){
     try{
       const imf=im.files[0];
       if(imf){const ext=(imf.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'');const path=u.id+'/'+crypto.randomUUID()+'.'+ext;const {error}=await sb.storage.from('post-images').upload(path,imf,{contentType:imf.type,upsert:false});if(error)throw error;image_url=sb.storage.from('post-images').getPublicUrl(path).data.publicUrl}
-      const {data:post,error:pe}=await sb.from('posts').insert({user_id:u.id,title,body,image_url,approved:false}).select('id').single();if(pe)throw pe;
+      const {data:post,error:pe}=await sb.from('posts').insert({user_id:u.id,title,body,image_url,approved:false}).select('id,approved').single();if(pe)throw pe;
       for(const name of tagsIn){
         let {data:tag,error:fe}=await sb.from('tags').select('id').eq('name',name).maybeSingle();if(fe)throw fe;
         if(!tag){const {data:created,error:te}=await sb.from('tags').insert({name}).select('id').single();if(te)throw te;tag=created;}
         const {error:pte}=await sb.from('post_tags').insert({post_id:post.id,tag_id:tag.id});if(pte)throw pte;
       }
-      notice('Post submitted for approval.');setTimeout(()=>location.href='index.html',700);
+      notice(post.approved?'Post published!':'Post submitted for approval.');setTimeout(()=>location.href=post.approved?'index.html':'profile.html',700);
     }catch(err){console.error(err);notice(err.message||'Could not publish post.');b.disabled=false;b.textContent='Publish post'}
   }
 }
