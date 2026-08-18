@@ -37,6 +37,22 @@ async function loadPublicStaff(){
   publicStaff=new Map((data||[]).map(x=>[x.id,x.role]));
   return publicStaff;
 }
+async function loadAnnouncement(){
+  let box=document.querySelector('#announcement');
+  if(!box){
+    const header=document.querySelector('header');
+    const navEl=document.querySelector('#nav');
+    if(!header||!navEl)return;
+    box=document.createElement('div');
+    box.id='announcement';
+    navEl.insertAdjacentElement('afterend',box);
+  }
+  const {data,error}=await sb.rpc('get_site_announcement');
+  if(error){console.warn('Could not load announcement:',error.message);box.style.display='none';return}
+  const text=data?.[0]?.message||'';
+  if(text){box.innerHTML='<span class="announcement-label">📢</span> '+esc(text).replace(/\n/g,'<br>');box.style.display='block'}
+  else{box.innerHTML='';box.style.display='none'}
+}
 async function nav(){
   const n=document.querySelector('#nav'); if(!n)return;
   const u=await getUser(); const p=u?await getProfile(u.id):null;
@@ -45,6 +61,7 @@ async function nav(){
     (u?'<a href="#" id="logoutLink">Logout ('+esc(p?.username||'Account')+')</a>':'<a href="login.html">Login</a>');
   const l=document.querySelector('#logoutLink'); if(l)l.onclick=async e=>{e.preventDefault();await sb.auth.signOut();location.href='index.html'};
   if(u){const m=await getRoleStatus();if((m.is_admin||m.is_janny)&&!m.banned){const a=document.querySelector('#adminNav');if(a)a.style.display='inline'}}
+  await loadAnnouncement();
 }
 function tags(a=[]){return '<div class="tags">'+a.map(t=>'<a class="tag" href="search.html?q='+encodeURIComponent(t.name||t)+'">#'+esc(t.name||t)+'</a>').join('')+'</div>'}
 function card(p){
@@ -142,7 +159,20 @@ async function setupAdmin(){
     const {data:posts,error:postsError}=await sb.from('posts').select('*').order('created_at',{ascending:false});if(postsError){fail('Loading posts: '+postsError.message);return}await hydratePosts(posts||[]);
     const {data:users,error:usersError}=await sb.rpc('janny_list_moderation_users');if(usersError){fail('Loading users: '+usersError.message);return}
     const pending=(posts||[]).filter(p=>!p.approved),approved=(posts||[]).filter(p=>p.approved);
-    adminEl.innerHTML='<section class="panel"><h1>Moderation</h1><p class="muted">Pending posts need approval. Approved posts are public.</p></section><section class="panel"><h2>Pending approval ('+pending.length+')</h2><div id="pendingPosts"></div></section><section class="panel"><h2>Approved posts ('+approved.length+')</h2><div id="approvedPosts"></div></section><section class="panel"><h2>Users</h2><div id="adminUsers"></div></section>';
+    const {data:announcementRows}=await sb.rpc('get_site_announcement');
+    const currentAnnouncement=announcementRows?.[0]?.message||'';
+    adminEl.innerHTML='<section class="panel"><h1>Moderation</h1><p class="muted">Pending posts need approval. Approved posts are public.</p></section>'+(m.is_admin?'<section class="panel"><h2>Site announcement</h2><p class="muted">This appears across the site for everyone. Leave it empty to hide the announcement.</p><textarea id="announcementText" rows="3" maxlength="500" placeholder="Write an announcement…">'+esc(currentAnnouncement)+'</textarea><button id="saveAnnouncement">Save announcement</button> <button id="clearAnnouncement">Clear</button><p id="announcementNotice" class="muted"></p></section>':'')+'<section class="panel"><h2>Pending approval ('+pending.length+')</h2><div id="pendingPosts"></div></section><section class="panel"><h2>Approved posts ('+approved.length+')</h2><div id="approvedPosts"></div></section><section class="panel"><h2>Users</h2><div id="adminUsers"></div></section>';
+    if(m.is_admin){
+      const save=async text=>{
+        const notice=document.querySelector('#announcementNotice');
+        const {error}=await sb.rpc('set_site_announcement',{new_message:text});
+        if(error){if(notice)notice.textContent='Error: '+error.message;return}
+        if(notice)notice.textContent='Announcement saved.';
+        await loadAnnouncement();
+      };
+      document.querySelector('#saveAnnouncement').onclick=()=>save(document.querySelector('#announcementText').value.trim());
+      document.querySelector('#clearAnnouncement').onclick=()=>{document.querySelector('#announcementText').value='';save('')};
+    }
     const row=p=>'<div class="admin-row moderation-post"><div class="pending-preview">'+(p.image_url?'<img src="'+esc(p.image_url)+'" class="moderation-thumb">':'')+'<div><b><a href="post.html?id='+p.id+'">'+esc(p.title)+'</a></b><span class="muted">by '+authorLink(p.user_id,p.profiles?.username||'Unknown',p.profiles?.role)+' · '+new Date(p.created_at).toLocaleString()+'</span><div class="moderation-body">'+esc(p.body.slice(0,600))+(p.body.length>600?'…':'')+'</div></div></div><div>'+(p.approved?'':'<button onclick="approvePost(\''+p.id+'\')">Approve</button> ')+'<button class="danger" onclick="adminDeletePost(\''+p.id+'\')">Delete</button></div></div>';
     document.querySelector('#pendingPosts').innerHTML=pending.length?pending.map(row).join(''):'<p class="muted">Nothing waiting for approval.</p>';
     document.querySelector('#approvedPosts').innerHTML=approved.length?approved.map(row).join(''):'<p class="muted">No approved posts.</p>';
