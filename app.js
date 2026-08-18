@@ -22,9 +22,11 @@ function card(p){
   return '<article class="card"><a href="post.html?id='+p.id+'">'+(p.image_url?'<img class="post-image" src="'+esc(p.image_url)+'">':'<div class="preview">'+esc(p.body)+'</div>')+'</a><div class="cardbody"><h3><a href="post.html?id='+p.id+'">'+esc(p.title)+'</a></h3><p class="muted">by '+adminName(p.profiles?.username||'Unknown')+'</p>'+tags(ts)+'</div></article>';
 }
 async function fetchPosts(filterTags=[]){
-  let q=sb.from('posts').select('*, profiles(username), post_tags(tags(name))').order('created_at',{ascending:false});
+  let q=sb.from('posts').select('*, post_tags(tags(name))').order('created_at',{ascending:false});
   const {data,error}=await q;if(error){console.error(error);return []}
   let a=data||[];
+  const ids=[...new Set(a.map(p=>p.user_id).filter(Boolean))];
+  if(ids.length){const {data:profiles, error:pe}=await sb.from('profiles').select('id,username').in('id',ids); if(!pe){const pm=new Map((profiles||[]).map(x=>[x.id,x])); a=a.map(p=>({...p,profiles:pm.get(p.user_id)||null}));}}
   if(filterTags.length)a=a.filter(p=>{const ts=(p.post_tags||[]).map(x=>x.tags?.name?.toLowerCase()||'');return filterTags.every(t=>ts.some(x=>x.includes(t))) });
   return a;
 }
@@ -106,9 +108,11 @@ async function setupUpload(){
 }
 async function renderPost(){
   await nav();const id=new URLSearchParams(location.search).get('id'),el=document.querySelector('#post');
-  const {data:p,error}=await sb.from('posts').select('*, profiles(username), post_tags(tags(name))').eq('id',id).maybeSingle();
+  const {data:p,error}=await sb.from('posts').select('*, post_tags(tags(name))').eq('id',id).maybeSingle();
   if(error||!p){el.innerHTML='<section class="panel"><h1>Post not found</h1></section>';return}
-  const {data:c,error:ce}=await sb.from('comments').select('*, profiles(username)').eq('post_id',id).order('created_at',{ascending:true});if(ce)console.error(ce);
+  const {data:author}=await sb.from('profiles').select('id,username').eq('id',p.user_id).maybeSingle(); p.profiles=author||null;
+  const {data:c,error:ce}=await sb.from('comments').select('*').eq('post_id',id).order('created_at',{ascending:true});
+  const cids=[...new Set((c||[]).map(x=>x.user_id).filter(Boolean))]; if(cids.length){const {data:cp}=await sb.from('profiles').select('id,username').in('id',cids); const cm=new Map((cp||[]).map(x=>[x.id,x])); (c||[]).forEach(x=>x.profiles=cm.get(x.user_id)||null); }if(ce)console.error(ce);
   const u=await getUser(); const ts=p.post_tags?.map(x=>x.tags).filter(Boolean)||[];
   el.innerHTML='<section class="panel"><h1>'+esc(p.title)+'</h1><p class="muted">by '+adminName(p.profiles?.username||'Unknown')+' · '+new Date(p.created_at).toLocaleString()+'</p>'+(p.image_url?'<img class="post-image" src="'+esc(p.image_url)+'">':'')+
   '<div class="post-text">'+esc(p.body)+'</div><div style="margin-top:18px">'+tags(ts)+'</div><p><button onclick="downloadPost('+p.id+')">Download text</button>'+
@@ -135,8 +139,9 @@ async function setupAdmin(){
       adminEl.innerHTML='<section class="panel"><h1>Access denied</h1><p>You are not an administrator.</p></section>';return
     }
 
-    const {data:posts,error:postsError}=await sb.from('posts').select('*, profiles(username), post_tags(tags(name))').order('created_at',{ascending:false});
+    const {data:posts,error:postsError}=await sb.from('posts').select('*, post_tags(tags(name))').order('created_at',{ascending:false});
     if(postsError){fail('Loading posts: '+postsError.message);return}
+    const pids=[...new Set((posts||[]).map(p=>p.user_id).filter(Boolean))]; if(pids.length){const {data:pp,error:ppe}=await sb.from('profiles').select('id,username').in('id',pids); if(ppe){fail('Loading profiles: '+ppe.message);return} const pm=new Map((pp||[]).map(x=>[x.id,x])); (posts||[]).forEach(p=>p.profiles=pm.get(p.user_id)||null);}
 
     const {data:users,error:usersError}=await sb.rpc('list_moderation_users');
     if(usersError){fail('list_moderation_users: '+usersError.message);return}
@@ -183,7 +188,8 @@ async function renderProfile(){
   await nav();const u=await getUser();let id=new URLSearchParams(location.search).get('id');if(!id&&u)id=u.id;
   if(!id){document.querySelector('#profile').innerHTML='<section class="panel"><h1>Log in to view your profile</h1></section>';return}
   const {data:p}=await sb.from('profiles').select('*').eq('id',id).maybeSingle();if(!p){document.querySelector('#profile').innerHTML='<section class="panel"><h1>Profile not found</h1></section>';return}
-  const {data:a}=await sb.from('posts').select('*, profiles(username), post_tags(tags(name))').eq('user_id',id).order('created_at',{ascending:false});
+  const {data:a}=await sb.from('posts').select('*, post_tags(tags(name))').eq('user_id',id).order('created_at',{ascending:false});
+  (a||[]).forEach(x=>x.profiles=p);
   document.querySelector('#profile').innerHTML='<section class="panel profile"><div class="avatar">'+esc(p.username.slice(0,2).toUpperCase())+'</div><div><h1>'+esc(p.username)+'</h1><p class="muted">'+(a?.length||0)+' post'+((a?.length||0)===1?'':'s')+'</p></div></section><h2>Posts</h2><div id="posts" class="grid"></div><p id="empty" class="muted"></p>';render(a||[],'#posts')
 }
 document.addEventListener('DOMContentLoaded',()=>{const path=location.pathname;if(path.endsWith('index.html')||path.endsWith('/'))home()});
