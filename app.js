@@ -40,25 +40,68 @@ async function runSearch(){
   document.querySelector('#searchForm').onsubmit=e=>{e.preventDefault();location.href='search.html?q='+encodeURIComponent(document.querySelector('#query').value)}
 }
 async function setupUpload(){
-  await nav();const u=await getUser();if(!u){location.href='login.html';return}
+  await nav();
+  const u=await getUser();
+  if(!u){location.href='login.html';return}
   const f=document.querySelector('#postForm'),im=document.querySelector('#image');
   im.onchange=()=>{const x=im.files[0];if(!x)return;if(x.size>5000000){notice('Image too large (max 5 MB).');im.value='';return}const r=new FileReader();r.onload=()=>document.querySelector('#imagePreview').innerHTML='<img class="image-preview" src="'+r.result+'">';r.readAsDataURL(x)};
   f.onsubmit=async e=>{
-    e.preventDefault(); const title=document.querySelector('#title').value.trim(),body=document.querySelector('#text').value,tagsIn=[...new Set(document.querySelector('#tags').value.toLowerCase().split(/[\s,]+/).filter(Boolean))];
+    e.preventDefault();
+    const title=document.querySelector('#title').value.trim(),body=document.querySelector('#text').value,tagsIn=[...new Set(document.querySelector('#tags').value.toLowerCase().split(/[\s,]+/).filter(Boolean))];
     if(!title||!body||!tagsIn.length){notice('Title, text, and at least one tag are required.');return}
     const b=f.querySelector('button');b.disabled=true;b.textContent='Publishing…';
     let image_url=null;
     try{
+      // Check moderation status before inserting. This makes the intended rule explicit:
+      // admins and auto-confirmed users are approved immediately.
+      const {data:mods,error:me}=await sb.rpc('get_my_moderation_status');
+      if(me) throw new Error('Could not check moderation status: '+me.message);
+      const mod=mods?.[0]||{};
+      const shouldAutoApprove=mod.is_admin===true || mod.is_auto_confirmed===true;
+
       const imf=im.files[0];
-      if(imf){const ext=(imf.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'');const path=u.id+'/'+crypto.randomUUID()+'.'+ext;const {error}=await sb.storage.from('post-images').upload(path,imf,{contentType:imf.type,upsert:false});if(error)throw error;image_url=sb.storage.from('post-images').getPublicUrl(path).data.publicUrl}
-      const {data:post,error:pe}=await sb.from('posts').insert({user_id:u.id,title,body,image_url,approved:false}).select('id,approved').single();if(pe)throw pe;
-      for(const name of tagsIn){
-        let {data:tag,error:fe}=await sb.from('tags').select('id').eq('name',name).maybeSingle();if(fe)throw fe;
-        if(!tag){const {data:created,error:te}=await sb.from('tags').insert({name}).select('id').single();if(te)throw te;tag=created;}
-        const {error:pte}=await sb.from('post_tags').insert({post_id:post.id,tag_id:tag.id});if(pte)throw pte;
+      if(imf){
+        const ext=(imf.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'');
+        const path=u.id+'/'+crypto.randomUUID()+'.'+ext;
+        const {error}=await sb.storage.from('post-images').upload(path,imf,{contentType:imf.type,upsert:false});
+        if(error)throw new Error('Image upload failed: '+error.message);
+        image_url=sb.storage.from('post-images').getPublicUrl(path).data.publicUrl;
       }
-      notice(post.approved?'Post published!':'Post submitted for approval.');setTimeout(()=>location.href=post.approved?'index.html':'profile.html',700);
-    }catch(err){console.error(err);notice(err.message||'Could not publish post.');b.disabled=false;b.textContent='Publish post'}
+
+      const {data:post,error:pe}=await sb.from('posts').insert({user_id:u.id,title,body,image_url,approved:shouldAutoApprove}).select('id,approved').single();
+      if(pe) throw new Error('Creating the post failed: '+(pe.message||pe.code||'Unknown Supabase error'));
+
+      // The post already exists. Save tags independently so tag failures never make
+      // a successful post look like a failed submission.
+      const tagErrors=[];
+      for(const name of tagsIn){
+        try{
+          let {data:tag,error:fe}=await sb.from('tags').select('id').eq('name',name).maybeSingle();
+          if(fe) throw fe;
+          if(!tag){
+            const {data:created,error:te}=await sb.from('tags').insert({name}).select('id').single();
+            if(te) throw te;
+            tag=created;
+          }
+          const {error:pte}=await sb.from('post_tags').insert({post_id:post.id,tag_id:tag.id});
+          if(pte) throw pte;
+        }catch(tagErr){
+          console.error('Tag error for',name,tagErr);
+          tagErrors.push(name+': '+(tagErr.message||'Failed to fetch'));
+        }
+      }
+
+      if(tagErrors.length){
+        notice((post.approved?'Post published':'Post submitted for approval')+', but some tags could not be saved: '+tagErrors.join(' | '));
+      }else{
+        notice(post.approved?'Post published!':'Post submitted for approval.');
+      }
+      setTimeout(()=>location.href=post.approved?'index.html':'profile.html',1200);
+    }catch(err){
+      console.error(err);
+      notice(err.message||'Could not publish post.');
+      b.disabled=false;b.textContent='Publish post';
+    }
   }
 }
 async function renderPost(){
@@ -78,15 +121,39 @@ async function downloadPost(id){const {data:p}=await sb.from('posts').select('ti
 async function deletePost(id){const u=await getUser();if(!u||!confirm('Delete this post?'))return;const {error}=await sb.from('posts').delete().eq('id',id);if(error)alert(error.message);else location.href='index.html'}
 async function getModeration(){const u=await getUser();if(!u)return null;const {data}=await sb.rpc('get_my_moderation_status');return data?.[0]||null}
 async function setupAdmin(){
-  await nav(); const u=await getUser(); if(!u){location.href='login.html';return}
-  const {data:me}=await sb.rpc('get_my_moderation_status'); const m=me?.[0];
-  if(!m?.is_admin){document.querySelector('#admin').innerHTML='<section class="panel"><h1>Access denied</h1><p>You are not an administrator.</p></section>';return}
-  const {data:posts,error}=await sb.from('posts').select('*, profiles(username), post_tags(tags(name))').order('created_at',{ascending:false});
-  if(error){notice(error.message);return}
-  document.querySelector('#admin').innerHTML='<section class="panel"><h1>Moderation</h1><p class="muted">Approve or delete posts. Use the ⋮ menu beside a user to ban them or grant/revoke auto-confirmed status.</p></section><div id="adminPosts"></div><section class="panel"><h2>Users</h2><div id="adminUsers"></div></section>';
-  document.querySelector('#adminPosts').innerHTML='<section class="panel"><h2>Posts</h2>'+((posts||[]).map(p=>'<div class="admin-row"><div><b>'+esc(p.title)+'</b> <span class="muted">by '+adminName(p.profiles?.username||'Unknown')+' · '+(p.approved?'approved':'PENDING')+'</span></div><div>'+(p.approved?'':'<button onclick="approvePost(\''+p.id+'\')">Approve</button> ')+'<button class="danger" onclick="adminDeletePost(\''+p.id+'\')">Delete</button></div></div>').join('')||'<p class="muted">No posts.</p>')+'</section>';
-  const {data:users}=await sb.rpc('list_moderation_users');
-  document.querySelector('#adminUsers').innerHTML=(users||[]).map(x=>'<div class="admin-row user-row"><div><b>'+adminName(x.username)+'</b> <span class="muted">'+(x.banned?'BANNED':(x.auto_confirmed?'auto-confirmed':'active'))+'</span></div><div class="user-actions"><button class="menu-dots" title="User actions" onclick="toggleUserMenu(\''+x.id+'\')">⋮</button><div id="userMenu_'+x.id+'" class="user-menu" style="display:none">'+(x.banned?'<button onclick="setBan(\''+x.id+'\',false)">Unban</button>':'<button class="danger" onclick="setBan(\''+x.id+'\',true)">Ban</button>')+(x.auto_confirmed?'<button onclick="setAutoConfirmed(\''+x.id+'\',false)">Remove auto-confirmed</button>':'<button onclick="setAutoConfirmed(\''+x.id+'\',true)">Give auto-confirmed</button>')+'</div></div></div>').join('')||'<p class="muted">No users.</p>';
+  const adminEl=document.querySelector('#admin');
+  const fail=(msg)=>{if(adminEl)adminEl.innerHTML='<section class="panel"><h1>Moderation error</h1><p>'+esc(msg)+'</p><p class="muted">The page is working, but Supabase returned an error. Nothing is being hidden behind Loading…</p></section>'};
+  try{
+    await nav();
+    const u=await getUser();
+    if(!u){location.href='login.html';return}
+
+    const {data:me,error:statusError}=await sb.rpc('get_my_moderation_status');
+    if(statusError){fail('get_my_moderation_status: '+statusError.message);return}
+    const m=me?.[0];
+    if(!m?.is_admin){
+      adminEl.innerHTML='<section class="panel"><h1>Access denied</h1><p>You are not an administrator.</p></section>';return
+    }
+
+    const {data:posts,error:postsError}=await sb.from('posts').select('*, profiles(username), post_tags(tags(name))').order('created_at',{ascending:false});
+    if(postsError){fail('Loading posts: '+postsError.message);return}
+
+    const {data:users,error:usersError}=await sb.rpc('list_moderation_users');
+    if(usersError){fail('list_moderation_users: '+usersError.message);return}
+
+    const pending=(posts||[]).filter(p=>!p.approved);
+    const approved=(posts||[]).filter(p=>p.approved);
+    adminEl.innerHTML='<section class="panel"><h1>Moderation</h1><p class="muted">Pending posts need approval. Approved posts are already public.</p></section>'+      '<section class="panel"><h2>Pending approval ('+pending.length+')</h2><div id="pendingPosts"></div></section>'+      '<section class="panel"><h2>Approved posts ('+approved.length+')</h2><div id="approvedPosts"></div></section>'+      '<section class="panel"><h2>Users</h2><div id="adminUsers"></div></section>';
+
+    const row=p=>'<div class="admin-row"><div><b>'+esc(p.title)+'</b> <span class="muted">by '+adminName(p.profiles?.username||'Unknown')+' · '+new Date(p.created_at).toLocaleString()+'</span></div><div>'+(p.approved?'':'<button onclick="approvePost(\''+p.id+'\')">Approve</button> ')+'<button class="danger" onclick="adminDeletePost(\''+p.id+'\')">Delete</button></div></div>';
+    document.querySelector('#pendingPosts').innerHTML=pending.length?pending.map(row).join(''):'<p class="muted">Nothing waiting for approval.</p>';
+    document.querySelector('#approvedPosts').innerHTML=approved.length?approved.map(row).join(''):'<p class="muted">No approved posts.</p>';
+
+    document.querySelector('#adminUsers').innerHTML=(users||[]).map(x=>'<div class="admin-row user-row"><div><b>'+adminName(x.username)+'</b> <span class="muted">'+(x.banned?'BANNED':(x.auto_confirmed?'auto-confirmed':(x.role==='admin'?'admin':'active')))+(x.role==='admin'?' · admin':'')+'</span></div><div class="user-actions"><button class="menu-dots" title="User actions" onclick="toggleUserMenu(\''+x.id+'\')">⋮</button><div id="userMenu_'+x.id+'" class="user-menu" style="display:none">'+(x.banned?'<button onclick="setBan(\''+x.id+'\',false)">Unban</button>':'<button class="danger" onclick="setBan(\''+x.id+'\',true)">Ban</button>')+(x.auto_confirmed?'<button onclick="setAutoConfirmed(\''+x.id+'\',false)">Remove auto-confirmed</button>':'<button onclick="setAutoConfirmed(\''+x.id+'\',true)">Give auto-confirmed</button>')+'</div></div></div>').join('')||'<p class="muted">No users.</p>';
+  }catch(err){
+    console.error(err);
+    fail(err.message||String(err));
+  }
 }
 async function approvePost(id){const {error}=await sb.from('posts').update({approved:true}).eq('id',id);if(error)alert(error.message);else setupAdmin()}
 async function adminDeletePost(id){if(!confirm('Delete this post?'))return;const {error}=await sb.from('posts').delete().eq('id',id);if(error)alert(error.message);else setupAdmin()}
