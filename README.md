@@ -1,18 +1,36 @@
-# SOYBREACH
+# SOYBREACH — Supabase working version
 
-Static front-end prototype for a booru-style archive of visual text files.
+This version connects SOYBREACH to Supabase instead of browser `localStorage`.
 
-## GitHub Pages
+## What works
 
-1. Create a repository named `soybreach`.
-2. Upload all files in this folder.
-3. Enable GitHub Pages from the repository's Pages settings.
-4. Open the generated Pages URL.
+- Real Supabase email/password accounts
+- User profiles
+- Public posts shared between visitors/devices
+- Required tags
+- Tag search
+- Comments
+- Optional image uploads through Supabase Storage
+- Text downloads
+- Users can delete their own posts
+
+## Setup
+
+1. The Supabase project URL and publishable key are already configured in `app.js`.
+2. In Supabase SQL Editor, run `SUPABASE_SETUP.sql` once. It creates the profile-on-registration trigger and the `post-images` storage bucket/policies.
+3. In Supabase Authentication settings, keep Email enabled. If email confirmation is enabled, new users must confirm their email before logging in.
+4. Upload all files in this folder to the root of your GitHub Pages repository, replacing the old SOYBREACH files.
+5. Open the GitHub Pages site and create an account.
+
+## Security
+
+The browser contains only the Supabase publishable key. The database is protected by Row Level Security (RLS), which must remain enabled.
+
+Do NOT put a Supabase secret key, service-role key, or database password in the website.
 
 ## Important
 
-This repository is intentionally front-end/static. GitHub Pages cannot provide secure server-side account creation, authentication, comments, database storage, or arbitrary file uploads by itself.
+This is the first real backend version. Admin accounts, bans, moderation, and 30-day trash are intentionally NOT included yet. We will add those before the public launch.
 
-For production, connect the UI to a backend/API and database. See `SPECIFICATION.md`.
+The optional image bucket is public so post images can be displayed to visitors. Users can only upload/delete files inside their own user folder.
 
-No images are included in this prototype.

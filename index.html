@@ -1,18 +1,1 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SOYBREACH — Visual Text Archive</title>
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
-<header class="top"><a class="logo" href="index.html">SOYBREACH</a><nav>
-<a href="index.html">Posts</a><a href="search.html">Search</a><a href="upload.html">Upload</a><a href="profile.html">Profile</a><a href="login.html">Login</a>
-</nav></header>
-<main class="wrap">
-<section class="hero"><h1>Visual text archive.</h1><p>Browse, tag, search and download visual text files.</p><form action="search.html"><input name="q" placeholder="Search tags…"><button>Search</button></form></section>
-<section class="toolbar"><h2>Recent posts</h2><a class="button" href="upload.html">+ Upload</a></section>
-<div id="posts" class="grid"></div>
-</main>
-<script src="app.js"></script>
-</body></html>
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SOYBREACH</title><link rel="stylesheet" href="style.css"></head><body><header><a class="logo" href="index.html">SOYBREACH</a><nav class="boards"><a href="index.html">home</a><a href="search.html?q=archive">archive</a><a href="search.html?q=meme">meme</a><a href="search.html?q=soy">soy</a><a href="search.html?q=general">general</a><a href="search.html?q=random">random</a><a href="search.html">search</a><a href="upload.html">new thread</a></nav><nav id="nav"></nav></header><main><section class="hero"><h1>/soy/ — SOYBREACH</h1><p>A textboard for posting, archiving and discussing whatever.</p><form id="homeSearch"><input id="homeQuery" placeholder="Search tags…"><button>Search</button></form></section><div class="bar"><h2>Recent threads</h2><a class="button" href="upload.html">+ New thread</a></div><div id="posts" class="grid"></div><p id="empty" class="muted"></p><footer>SOYBREACH — text archive / imageboard-style board<br><a href="index.html">home</a> · <a href="search.html">search</a> · <a href="upload.html">new thread</a></footer></main><script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="app.js"></script></body></html>
