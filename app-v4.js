@@ -44,7 +44,7 @@ async function nav(){
     (u?'<a href="admin.html" id="adminNav" style="display:none">moderation</a>':'')+
     (u?'<a href="#" id="logoutLink">Logout ('+esc(p?.username||'Account')+')</a>':'<a href="login.html">Login</a>');
   const l=document.querySelector('#logoutLink'); if(l)l.onclick=async e=>{e.preventDefault();await sb.auth.signOut();location.href='index.html'};
-  if(u){const m=await getRoleStatus();if(m.is_admin||m.is_janny){const a=document.querySelector('#adminNav');if(a)a.style.display='inline'}}
+  if(u){const m=await getRoleStatus();if((m.is_admin||m.is_janny)&&!m.banned){const a=document.querySelector('#adminNav');if(a)a.style.display='inline'}}
 }
 function tags(a=[]){return '<div class="tags">'+a.map(t=>'<a class="tag" href="search.html?q='+encodeURIComponent(t.name||t)+'">#'+esc(t.name||t)+'</a>').join('')+'</div>'}
 function card(p){
@@ -138,7 +138,7 @@ async function setupAdmin(){
   const adminEl=document.querySelector('#admin');const fail=msg=>{if(adminEl)adminEl.innerHTML='<section class="panel"><h1>Moderation error</h1><p>'+esc(msg)+'</p><p class="muted">The page is working, but Supabase returned an error.</p></section>'};
   try{
     await nav();const u=await getUser();if(!u){location.href='login.html';return}
-    const m=await getRoleStatus();if(!m.is_admin&&!m.is_janny){adminEl.innerHTML='<section class="panel"><h1>Access denied</h1><p>You are not a janny or administrator.</p></section>';return}
+    const m=await getRoleStatus();if(m.banned){adminEl.innerHTML='<section class="panel"><h1>Access denied</h1><p>Your account is banned and cannot access moderation.</p></section>';return}if(!m.is_admin&&!m.is_janny){adminEl.innerHTML='<section class="panel"><h1>Access denied</h1><p>You are not a janny or administrator.</p></section>';return}
     const {data:posts,error:postsError}=await sb.from('posts').select('*').order('created_at',{ascending:false});if(postsError){fail('Loading posts: '+postsError.message);return}await hydratePosts(posts||[]);
     const {data:users,error:usersError}=await sb.rpc('janny_list_moderation_users');if(usersError){fail('Loading users: '+usersError.message);return}
     const pending=(posts||[]).filter(p=>!p.approved),approved=(posts||[]).filter(p=>p.approved);
