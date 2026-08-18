@@ -34,3 +34,14 @@ This is the first real backend version. Admin accounts, bans, moderation, and 30
 
 The optional image bucket is public so post images can be displayed to visitors. Users can only upload/delete files inside their own user folder.
 
+
+
+## Administrator list
+
+`admins.js` is the site's visible administrator list. Add an entry like:
+
+```js
+"Username": { color: "#ff00aa", role: "admin" }
+```
+
+This gives that username a colored name on the site. Actual moderation permissions must still be granted in Supabase's `moderation_users` table/RLS; a public GitHub file cannot safely grant database permissions by itself. `Groot3` is already listed with purple `#7b2cff`.
