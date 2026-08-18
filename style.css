@@ -18,5 +18,4 @@ button,.button{display:inline-block;border:1px solid #7895aa;border-radius:2px;b
 footer{text-align:center;color:#666;font-size:10px;padding:15px 8px 25px;border-top:1px solid #9eb6ca;margin-top:20px}footer a{color:#555}
 @media(max-width:700px){.card{grid-template-columns:1fr}.preview{border-right:0;border-bottom:1px solid #b8cbd9;height:130px}.card .post-image{border-right:0;border-bottom:1px solid #b8cbd9;height:130px}.hero h1{font-size:21px}.hero form,#searchForm{flex-direction:column}.logo{font-size:27px}main{padding-left:7px;padding-right:7px}}
 .admin-row{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:8px 0;border-top:1px solid #b7cfe2}.admin-row:first-child{border-top:0}.admin-row button{margin-left:4px}@media(max-width:600px){.admin-row{align-items:flex-start;flex-direction:column}}
-
-.admin-name{font-weight:700;}
+.user-actions{position:relative}.menu-dots{font-size:20px;line-height:1;padding:2px 8px}.user-menu{position:absolute;right:0;top:100%;z-index:10;min-width:180px;background:#fff;border:1px solid #aaa;padding:4px;box-shadow:0 2px 5px rgba(0,0,0,.12)}.user-menu button{display:block;width:100%;text-align:left;margin:2px 0}.user-row{align-items:flex-start}

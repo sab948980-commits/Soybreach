@@ -2,6 +2,7 @@ const SUPABASE_URL = 'https://udydiwdajloqcraxzaey.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_i8L54-YlFNUMtF2__9IC-A_ApR4Y5EL';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 let currentProfile = null;
+function adminName(name){const a=window.SOYBREACH_ADMINS?.[name];return a?'<span style="color:'+esc(a.color)+'">'+esc(name)+'</span>':esc(name)}
 
 function esc(s=''){return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 async function getUser(){const {data:{user}}=await sb.auth.getUser();return user||null}
@@ -18,7 +19,7 @@ async function nav(){
 function tags(a=[]){return '<div class="tags">'+a.map(t=>'<a class="tag" href="search.html?q='+encodeURIComponent(t.name||t)+'">#'+esc(t.name||t)+'</a>').join('')+'</div>'}
 function card(p){
   const ts=p.post_tags?.map(x=>x.tags).filter(Boolean)||[];
-  return '<article class="card"><a href="post.html?id='+p.id+'">'+(p.image_url?'<img class="post-image" src="'+esc(p.image_url)+'">':'<div class="preview">'+esc(p.body)+'</div>')+'</a><div class="cardbody"><h3><a href="post.html?id='+p.id+'">'+esc(p.title)+'</a></h3><p class="muted">by '+authorName(p.profiles?.username)+'</p>'+tags(ts)+'</div></article>';
+  return '<article class="card"><a href="post.html?id='+p.id+'">'+(p.image_url?'<img class="post-image" src="'+esc(p.image_url)+'">':'<div class="preview">'+esc(p.body)+'</div>')+'</a><div class="cardbody"><h3><a href="post.html?id='+p.id+'">'+esc(p.title)+'</a></h3><p class="muted">by '+adminName(p.profiles?.username||'Unknown')+'</p>'+tags(ts)+'</div></article>';
 }
 async function fetchPosts(filterTags=[]){
   let q=sb.from('posts').select('*, profiles(username), post_tags(tags(name))').order('created_at',{ascending:false});
@@ -66,7 +67,7 @@ async function renderPost(){
   if(error||!p){el.innerHTML='<section class="panel"><h1>Post not found</h1></section>';return}
   const {data:c,error:ce}=await sb.from('comments').select('*, profiles(username)').eq('post_id',id).order('created_at',{ascending:true});if(ce)console.error(ce);
   const u=await getUser(); const ts=p.post_tags?.map(x=>x.tags).filter(Boolean)||[];
-  el.innerHTML='<section class="panel"><h1>'+esc(p.title)+'</h1><p class="muted">by '+authorName(p.profiles?.username)+' · '+new Date(p.created_at).toLocaleString()+'</p>'+(p.image_url?'<img class="post-image" src="'+esc(p.image_url)+'">':'')+
+  el.innerHTML='<section class="panel"><h1>'+esc(p.title)+'</h1><p class="muted">by '+adminName(p.profiles?.username||'Unknown')+' · '+new Date(p.created_at).toLocaleString()+'</p>'+(p.image_url?'<img class="post-image" src="'+esc(p.image_url)+'">':'')+
   '<div class="post-text">'+esc(p.body)+'</div><div style="margin-top:18px">'+tags(ts)+'</div><p><button onclick="downloadPost('+p.id+')">Download text</button>'+
   (u&&u.id===p.user_id?' <button class="danger" onclick="deletePost('+p.id+')">Delete</button>':'')+'</p><hr><h2>Comments ('+(c?.length||0)+')</h2><div>'+
   ((c||[]).map(x=>'<div class="comment"><b>'+esc(x.profiles?.username||'Unknown')+'</b> <span class="muted">'+new Date(x.created_at).toLocaleString()+'</span><div>'+esc(x.body)+'</div></div>').join('')||'<p class="muted">No replies yet.</p>')+
@@ -82,14 +83,16 @@ async function setupAdmin(){
   if(!m?.is_admin){document.querySelector('#admin').innerHTML='<section class="panel"><h1>Access denied</h1><p>You are not an administrator.</p></section>';return}
   const {data:posts,error}=await sb.from('posts').select('*, profiles(username), post_tags(tags(name))').order('created_at',{ascending:false});
   if(error){notice(error.message);return}
-  document.querySelector('#admin').innerHTML='<section class="panel"><h1>Moderation</h1><p class="muted">Approve or delete posts and ban/unban users.</p></section><div id="adminPosts"></div><section class="panel"><h2>Users</h2><div id="adminUsers"></div></section>';
-  document.querySelector('#adminPosts').innerHTML='<section class="panel"><h2>Posts</h2>'+((posts||[]).map(p=>'<div class="admin-row"><div><b>'+esc(p.title)+'</b> <span class="muted">by '+authorName(p.profiles?.username)+' · '+(p.approved?'approved':'PENDING')+'</span></div><div>'+(p.approved?'':'<button onclick="approvePost(\''+p.id+'\')">Approve</button> ')+'<button class="danger" onclick="adminDeletePost(\''+p.id+'\')">Delete</button></div></div>').join('')||'<p class="muted">No posts.</p>')+'</section>';
+  document.querySelector('#admin').innerHTML='<section class="panel"><h1>Moderation</h1><p class="muted">Approve or delete posts. Use the ⋮ menu beside a user to ban them or grant/revoke auto-confirmed status.</p></section><div id="adminPosts"></div><section class="panel"><h2>Users</h2><div id="adminUsers"></div></section>';
+  document.querySelector('#adminPosts').innerHTML='<section class="panel"><h2>Posts</h2>'+((posts||[]).map(p=>'<div class="admin-row"><div><b>'+esc(p.title)+'</b> <span class="muted">by '+adminName(p.profiles?.username||'Unknown')+' · '+(p.approved?'approved':'PENDING')+'</span></div><div>'+(p.approved?'':'<button onclick="approvePost(\''+p.id+'\')">Approve</button> ')+'<button class="danger" onclick="adminDeletePost(\''+p.id+'\')">Delete</button></div></div>').join('')||'<p class="muted">No posts.</p>')+'</section>';
   const {data:users}=await sb.rpc('list_moderation_users');
-  document.querySelector('#adminUsers').innerHTML=(users||[]).map(x=>'<div class="admin-row"><div><b>'+esc(x.username)+'</b> <span class="muted">'+(x.banned?'BANNED':'active')+'</span></div><div>'+(x.banned?'<button onclick="setBan(\''+x.id+'\',false)">Unban</button>':'<button class="danger" onclick="setBan(\''+x.id+'\',true)">Ban</button>')+'</div></div>').join('')||'<p class="muted">No users.</p>';
+  document.querySelector('#adminUsers').innerHTML=(users||[]).map(x=>'<div class="admin-row user-row"><div><b>'+adminName(x.username)+'</b> <span class="muted">'+(x.banned?'BANNED':(x.auto_confirmed?'auto-confirmed':'active'))+'</span></div><div class="user-actions"><button class="menu-dots" title="User actions" onclick="toggleUserMenu(\''+x.id+'\')">⋮</button><div id="userMenu_'+x.id+'" class="user-menu" style="display:none">'+(x.banned?'<button onclick="setBan(\''+x.id+'\',false)">Unban</button>':'<button class="danger" onclick="setBan(\''+x.id+'\',true)">Ban</button>')+(x.auto_confirmed?'<button onclick="setAutoConfirmed(\''+x.id+'\',false)">Remove auto-confirmed</button>':'<button onclick="setAutoConfirmed(\''+x.id+'\',true)">Give auto-confirmed</button>')+'</div></div></div>').join('')||'<p class="muted">No users.</p>';
 }
 async function approvePost(id){const {error}=await sb.from('posts').update({approved:true}).eq('id',id);if(error)alert(error.message);else setupAdmin()}
 async function adminDeletePost(id){if(!confirm('Delete this post?'))return;const {error}=await sb.from('posts').delete().eq('id',id);if(error)alert(error.message);else setupAdmin()}
 async function setBan(id,banned){if(!confirm(banned?'Ban this user?':'Unban this user?'))return;const {error}=await sb.rpc('set_user_banned',{target_user_id:id,should_ban:banned});if(error)alert(error.message);else setupAdmin()}
+async function setAutoConfirmed(id,confirmed){if(!confirm(confirmed?'Give this user auto-confirmed status? Their future posts will skip moderation.':'Remove auto-confirmed status? Future posts will require approval.'))return;const {error}=await sb.rpc('set_user_auto_confirmed',{target_user_id:id,should_confirm:confirmed});if(error)alert(error.message);else setupAdmin()}
+function toggleUserMenu(id){const el=document.querySelector('#userMenu_'+id);if(!el)return;document.querySelectorAll('.user-menu').forEach(x=>{if(x!==el)x.style.display='none'});el.style.display=el.style.display==='none'?'block':'none'}
 async function setupRegister(){
   await nav();document.querySelector('#registerForm').onsubmit=async e=>{
     e.preventDefault();const n=document.querySelector('#username').value.trim(),email=document.querySelector('#email').value.trim(),p=document.querySelector('#password').value;
