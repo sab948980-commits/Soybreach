@@ -64,10 +64,16 @@ async function nav(){
   await loadAnnouncement();
 }
 function tags(a=[]){return '<div class="tags">'+a.map(t=>'<a class="tag" href="search.html?q='+encodeURIComponent(t.name||t)+'">#'+esc(t.name||t)+'</a>').join('')+'</div>'}
+function mediaPreview(p){
+  if(p.media_type==='video' && p.video_url)return '<video class="post-video" src="'+esc(p.video_url)+'" muted loop autoplay playsinline preload="metadata"></video>';
+  if(p.image_url)return '<img class="post-image" src="'+esc(p.image_url)+'" alt="">';
+  return '<div class="preview">'+esc(p.body)+'</div>';
+}
 function card(p){
   const ts=p.tags||[]; const role=p.profiles?.role||publicStaff.get(p.user_id);
-  return '<article class="card"><a href="post.html?id='+p.id+'">'+(p.image_url?'<img class="post-image" src="'+esc(p.image_url)+'">':'<div class="preview">'+esc(p.body)+'</div>')+'</a><div class="cardbody"><h3><a href="post.html?id='+p.id+'">'+esc(p.title)+'</a></h3><p class="muted">by '+authorLink(p.user_id,p.profiles?.username||'Unknown',role)+'</p>'+tags(ts)+'</div></article>';
+  return '<article class="card"><a href="post.html?id='+p.id+'">'+mediaPreview(p)+'</a><div class="cardbody"><h3><a href="post.html?id='+p.id+'">'+esc(p.title)+'</a></h3><p class="muted">by '+authorLink(p.user_id,p.profiles?.username||'Unknown',role)+'</p>'+tags(ts)+'</div></article>';
 }
+
 async function fetchPosts(filterTags=[]){
   const {data,error}=await sb.from('posts').select('*').eq('approved',true).order('created_at',{ascending:false});
   if(error){console.error('Loading posts failed:',error);return []}
@@ -108,17 +114,38 @@ async function runSearch(){await nav();const q=new URLSearchParams(location.sear
 async function setupUpload(){
   await nav();const u=await getUser();if(!u){location.href='login.html';return}
   const f=document.querySelector('#postForm'),im=document.querySelector('#image');
-  im.onchange=()=>{const x=im.files[0];if(!x)return;if(x.size>5000000){notice('Image too large (max 5 MB).');im.value='';return}const r=new FileReader();r.onload=()=>document.querySelector('#imagePreview').innerHTML='<img class="image-preview" src="'+r.result+'">';r.readAsDataURL(x)};
+  im.onchange=()=>{
+    const x=im.files[0];if(!x)return;
+    const isVideo=x.type.startsWith('video/');
+    const max=isVideo?50000000:5000000;
+    if(x.size>max){notice((isVideo?'Video':'Image')+' too large (max '+(isVideo?'50 MB':'5 MB')+').');im.value='';document.querySelector('#imagePreview').innerHTML='';return}
+    const preview=document.querySelector('#imagePreview'),url=URL.createObjectURL(x);
+    preview.innerHTML=isVideo?'<video class="video-preview" src="'+esc(url)+'" controls muted playsinline></video>':'<img class="image-preview" src="'+esc(url)+'">';
+  };
   f.onsubmit=async e=>{
     e.preventDefault();const title=document.querySelector('#title').value.trim(),body=document.querySelector('#text').value,tagsIn=[...new Set(document.querySelector('#tags').value.toLowerCase().split(/[\s,]+/).filter(Boolean))];
     if(!title||!body||!tagsIn.length){notice('Title, text, and at least one tag are required.');return}
-    const b=f.querySelector('button');b.disabled=true;b.textContent='Publishing…';let image_url=null;
+    const b=f.querySelector('button');b.disabled=true;b.textContent='Publishing…';let image_url=null,video_url=null,media_type=null;
     try{
       const mod=await getRoleStatus();if(mod.banned)throw new Error('Your account is banned.');
       const shouldAutoApprove=mod.is_admin||mod.is_janny||mod.is_auto_confirmed;
-      const imf=im.files[0];
-      if(imf){const ext=(imf.name.split('.').pop()||'jpg').toLowerCase().replace(/[^a-z0-9]/g,'');const path=u.id+'/'+crypto.randomUUID()+'.'+ext;const {error}=await sb.storage.from('post-images').upload(path,imf,{contentType:imf.type,upsert:false});if(error)throw new Error('Image upload failed: '+error.message);image_url=sb.storage.from('post-images').getPublicUrl(path).data.publicUrl}
-      const {data:post,error:pe}=await sb.from('posts').insert({user_id:u.id,title,body,image_url,approved:shouldAutoApprove}).select('id,approved').single();
+      const media=im.files[0];
+      if(media){
+        const isVideo=media.type.startsWith('video/');
+        const allowedVideo=['video/mp4','video/webm','video/ogg'];
+        if(isVideo&&!allowedVideo.includes(media.type))throw new Error('Videos must be MP4, WebM, or OGG.');
+        if(!isVideo&&!media.type.startsWith('image/'))throw new Error('Only image or video files are allowed.');
+        const max=isVideo?50000000:5000000;
+        if(media.size>max)throw new Error((isVideo?'Video':'Image')+' too large (max '+(isVideo?'50 MB':'5 MB')+').');
+        const ext=(media.name.split('.').pop()||(isVideo?'mp4':'jpg')).toLowerCase().replace(/[^a-z0-9]/g,'');
+        const path=u.id+'/'+crypto.randomUUID()+'.'+ext;
+        const {error}=await sb.storage.from('post-images').upload(path,media,{contentType:media.type,upsert:false});
+        if(error)throw new Error((isVideo?'Video':'Image')+' upload failed: '+error.message);
+        const publicUrl=sb.storage.from('post-images').getPublicUrl(path).data.publicUrl;
+        media_type=isVideo?'video':'image';
+        if(isVideo)video_url=publicUrl;else image_url=publicUrl;
+      }
+      const {data:post,error:pe}=await sb.from('posts').insert({user_id:u.id,title,body,image_url,video_url,media_type,approved:shouldAutoApprove}).select('id,approved').single();
       if(pe)throw new Error('Creating the post failed: '+(pe.message||pe.code||'Unknown Supabase error'));
       const tagErrors=[];
       for(const name of tagsIn){try{let {data:tag,error:fe}=await sb.from('tags').select('id').eq('name',name).maybeSingle();if(fe)throw fe;if(!tag){const {data:created,error:te}=await sb.from('tags').insert({name}).select('id').single();if(te)throw te;tag=created}const {error:pte}=await sb.from('post_tags').insert({post_id:post.id,tag_id:tag.id});if(pte)throw pte}catch(tagErr){console.error('Tag error for',name,tagErr);tagErrors.push(name+': '+(tagErr.message||'Failed to fetch'))}}
@@ -140,7 +167,8 @@ async function renderPost(){
   const u=await getUser(),mod=u?await getRoleStatus():null,ts=p.tags||[];
   const commentHtml=(c||[]).map(x=>'<div class="comment"><b>'+authorLink(x.user_id,x.profiles?.username||'Unknown',x.profiles?.role)+'</b> <span class="muted">'+new Date(x.created_at).toLocaleString()+'</span><div>'+esc(x.body)+'</div>'+(x.image_url?'<img class="comment-image" src="'+esc(x.image_url)+'">':'')+'</div>').join('')||'<p class="muted">No comments yet.</p>';
   const commentForm=u?'<form id="commentForm"><label>Comment<textarea id="commentBody" rows="4" required></textarea></label>'+(mod?.is_admin||mod?.is_janny||mod?.is_auto_confirmed?'<label>Optional image<input id="commentImage" type="file" accept="image/*"></label><div id="commentImagePreview"></div>':'')+'<button>Comment</button><p id="commentNotice"></p></form>':'<p class="muted">Log in to comment.</p>';
-  el.innerHTML='<section class="panel"><h1>'+esc(p.title)+'</h1><p class="muted">by '+authorLink(p.user_id,p.profiles?.username||'Unknown',p.profiles?.role)+' · '+new Date(p.created_at).toLocaleString()+'</p>'+(p.image_url?'<img class="post-image" src="'+esc(p.image_url)+'">':'')+'<div class="post-text">'+esc(p.body)+'</div><div style="margin-top:18px">'+tags(ts)+'</div><p><button onclick="downloadPost(\''+p.id+'\')">Download text</button>'+(u&&u.id===p.user_id?' <button class="danger" onclick="deletePost(\''+p.id+'\')">Delete</button>':'')+'</p><hr><h2>Comments ('+(c?.length||0)+')</h2><div>'+commentHtml+'</div>'+commentForm+'</section>';
+  const postMedia=p.media_type==='video'&&p.video_url?'<video class="post-video" src="'+esc(p.video_url)+'" controls playsinline preload="metadata"></video>':(p.image_url?'<img class="post-image" src="'+esc(p.image_url)+'" alt="">':'');
+  el.innerHTML='<section class="panel"><h1>'+esc(p.title)+'</h1><p class="muted">by '+authorLink(p.user_id,p.profiles?.username||'Unknown',p.profiles?.role)+' · '+new Date(p.created_at).toLocaleString()+'</p>'+postMedia+'<div class="post-text">'+esc(p.body)+'</div><div style="margin-top:18px">'+tags(ts)+'</div><p><button onclick="downloadPost(\''+p.id+'\')">Download text</button>'+(u&&u.id===p.user_id?' <button class="danger" onclick="deletePost(\''+p.id+'\')">Delete</button>':'')+'</p><hr><h2>Comments ('+(c?.length||0)+')</h2><div>'+commentHtml+'</div>'+commentForm+'</section>';
   if(u){
     const ci=document.querySelector('#commentImage');
     if(ci)ci.onchange=()=>{const x=ci.files[0];if(!x)return;if(x.size>5000000){noticeComment('Image too large (max 5 MB).');ci.value='';return}const r=new FileReader();r.onload=()=>document.querySelector('#commentImagePreview').innerHTML='<img class="image-preview" src="'+r.result+'">';r.readAsDataURL(x)};
@@ -173,7 +201,7 @@ async function setupAdmin(){
       document.querySelector('#saveAnnouncement').onclick=()=>save(document.querySelector('#announcementText').value.trim());
       document.querySelector('#clearAnnouncement').onclick=()=>{document.querySelector('#announcementText').value='';save('')};
     }
-    const row=p=>'<div class="admin-row moderation-post"><div class="pending-preview">'+(p.image_url?'<img src="'+esc(p.image_url)+'" class="moderation-thumb">':'')+'<div><b><a href="post.html?id='+p.id+'">'+esc(p.title)+'</a></b><span class="muted">by '+authorLink(p.user_id,p.profiles?.username||'Unknown',p.profiles?.role)+' · '+new Date(p.created_at).toLocaleString()+'</span><div class="moderation-body">'+esc(p.body.slice(0,600))+(p.body.length>600?'…':'')+'</div></div></div><div>'+(p.approved?'':'<button onclick="approvePost(\''+p.id+'\')">Approve</button> ')+'<button class="danger" onclick="adminDeletePost(\''+p.id+'\')">Delete</button></div></div>';
+    const row=p=>'<div class="admin-row moderation-post"><div class="pending-preview">'+(p.media_type==='video'&&p.video_url?'<video src="'+esc(p.video_url)+'" class="moderation-video" muted playsinline preload="metadata"></video>':(p.image_url?'<img src="'+esc(p.image_url)+'" class="moderation-thumb" alt="">':''))+'<div><b><a href="post.html?id='+p.id+'">'+esc(p.title)+'</a></b><span class="muted">by '+authorLink(p.user_id,p.profiles?.username||'Unknown',p.profiles?.role)+' · '+new Date(p.created_at).toLocaleString()+'</span><div class="moderation-body">'+esc(p.body.slice(0,600))+(p.body.length>600?'…':'')+'</div></div></div><div>'+(p.approved?'':'<button onclick="approvePost(\''+p.id+'\')">Approve</button> ')+'<button class="danger" onclick="adminDeletePost(\''+p.id+'\')">Delete</button></div></div>';
     document.querySelector('#pendingPosts').innerHTML=pending.length?pending.map(row).join(''):'<p class="muted">Nothing waiting for approval.</p>';
     document.querySelector('#approvedPosts').innerHTML=approved.length?approved.map(row).join(''):'<p class="muted">No approved posts.</p>';
     const canManageJanny=m.is_admin;
