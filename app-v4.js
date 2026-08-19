@@ -132,8 +132,7 @@ async function setupUpload(){
       const media=im.files[0];
       if(media){
         const isVideo=media.type.startsWith('video/');
-        const allowedVideo=['video/mp4','video/webm','video/ogg'];
-        if(isVideo&&!allowedVideo.includes(media.type))throw new Error('Videos must be MP4, WebM, or OGG.');
+        if(isVideo && !media.type.startsWith('video/'))throw new Error('Only video files are allowed.');
         if(!isVideo&&!media.type.startsWith('image/'))throw new Error('Only image or video files are allowed.');
         const max=isVideo?50000000:5000000;
         if(media.size>max)throw new Error((isVideo?'Video':'Image')+' too large (max '+(isVideo?'50 MB':'5 MB')+').');
